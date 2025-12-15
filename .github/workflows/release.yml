@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download and extract model
+        run: |
+          pip install huggingface_hub
+          huggingface-cli download onnx-community/embeddinggemma-300m-ONNX --local-dir model --local-dir-use-symlinks False
+
+      - name: Build plugin package
+        run: |
+          chmod +x pack.sh
+          ./pack.sh
+
+      - name: Rename artifact
+        run: mv dist/cn-plugin-gemma-embedding.zip dist/cn-plugin-gemma-embedding-linux.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: dist/*.zip
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download and extract model
+        run: |
+          pip install huggingface_hub
+          huggingface-cli download onnx-community/embeddinggemma-300m-ONNX --local-dir model --local-dir-use-symlinks False
+        shell: pwsh
+
+      - name: Build plugin package
+        run: ./pack.ps1
+        shell: pwsh
+
+      - name: Rename artifact
+        run: Rename-Item -Path "dist\cn-plugin-gemma-embedding.zip" -NewName "cn-plugin-gemma-embedding-windows.zip"
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/*.zip
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+          path: dist
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

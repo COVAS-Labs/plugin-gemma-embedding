@@ -1,0 +1,9 @@
+{
+    "guid": "88d3df68-d949-11f0-b7d9-e768d0e4b754",
+    "name": "COVAS:NEXT Plugin EmbeddingGemma",
+    "version": "0.0.1",
+    "author": "lucaelin",
+    "repository": "https://github.com/COVAS-Labs/plugin-gemma-embedding",
+    "description": "Run embedding locally using EmbeddingGemma",
+    "entrypoint": "cn-plugin-gemma-embedding.py"
+}
