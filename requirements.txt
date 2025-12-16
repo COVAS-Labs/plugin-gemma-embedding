@@ -1,4 +1,4 @@
 onnxruntime
 numpy
-transformers
+tokenizers
 cached_path

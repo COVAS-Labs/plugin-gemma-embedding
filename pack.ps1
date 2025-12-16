@@ -12,7 +12,16 @@ if (Test-Path "requirements.txt") {
 }
 
 # Remember to add any additional files, and change the name of the plugin
-$artifacts = "cn-plugin-gemma-embedding.py", "requirements.txt", "manifest.json", "__init__.py", "model"
+$artifacts = "cn-plugin-gemma-embedding.py", "requirements.txt", "manifest.json", "__init__.py", 
+    "model\added_tokens.json",
+    "model\config.json",
+    "model\generation_config.json",
+    "model\special_tokens_map.json",
+    "model\tokenizer.json",
+    "model\tokenizer.model",
+    "model\tokenizer_config.json",
+    "model\onnx\model_fp16.onnx",
+    "model\onnx\model_fp16.onnx_data"
 
 if (Test-Path "deps") {
     $artifacts += "deps"

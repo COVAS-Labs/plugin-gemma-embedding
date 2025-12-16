@@ -18,7 +18,15 @@ artifacts=(
     "cn-plugin-gemma-embedding.py"
     "requirements.txt"
     "manifest.json" "__init__.py"
-    "model"
+    "model/added_tokens.json"
+    "model/config.json"
+    "model/generation_config.json"
+    "model/special_tokens_map.json"
+    "model/tokenizer.json"
+    "model/tokenizer.model"
+    "model/tokenizer_config.json"
+    "model/onnx/model_fp16.onnx"
+    "model/onnx/model_fp16.onnx_data"
 )
 
 if [ -d "deps" ]; then

@@ -5,9 +5,10 @@ Provides offline embedding capabilities using the Google EmbeddingGemma model.
 
 from typing import override, Any, List
 import os
+import json
 import numpy as np
 import onnxruntime
-from transformers import AutoTokenizer, PretrainedConfig
+from tokenizers import Tokenizer
 
 from lib.PluginHelper import PluginHelper, EmbeddingModel
 from lib.PluginSettingDefinitions import (
@@ -27,7 +28,7 @@ class GemmaEmbeddingModel(EmbeddingModel):
         self.model_dir = model_dir
         self._session = None
         self._tokenizer = None
-        self._config = None
+        self._max_length = None
     
     def _get_model(self):
         """Lazily initialize the model."""
@@ -38,9 +39,29 @@ class GemmaEmbeddingModel(EmbeddingModel):
             log('info', f"Loading Gemma Embedding model from {self.model_dir}")
             
             try:
-                # Load tokenizer and model config
-                self._tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
-                self._config = PretrainedConfig.from_pretrained(self.model_dir)
+                # Load tokenizer (lightweight; avoids transformers)
+                tokenizer_path = os.path.join(self.model_dir, "tokenizer.json")
+                if not os.path.exists(tokenizer_path):
+                    for root, _, files in os.walk(self.model_dir):
+                        if "tokenizer.json" in files:
+                            tokenizer_path = os.path.join(root, "tokenizer.json")
+                            break
+
+                if not os.path.exists(tokenizer_path):
+                    raise ValueError(f"tokenizer.json not found in {self.model_dir}")
+
+                self._tokenizer = Tokenizer.from_file(tokenizer_path)
+
+                # Best-effort max length from config.json (optional)
+                config_path = os.path.join(self.model_dir, "config.json")
+                if os.path.exists(config_path):
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        config = json.load(f)
+                    self._max_length = (
+                        config.get("max_position_embeddings")
+                        or config.get("max_sequence_length")
+                        or config.get("max_length")
+                    )
 
                 # ONNX session
                 # Look for the ONNX file
@@ -69,6 +90,47 @@ class GemmaEmbeddingModel(EmbeddingModel):
 
         return self._session, self._tokenizer
 
+    def _tokenize(self, tokenizer: Tokenizer, text: str) -> tuple[np.ndarray, np.ndarray]:
+        encoding = tokenizer.encode(text)
+        input_ids = np.asarray([encoding.ids], dtype=np.int64)
+        attention_mask = np.asarray([encoding.attention_mask], dtype=np.int64)
+
+        if self._max_length is not None and input_ids.shape[1] > int(self._max_length):
+            input_ids = input_ids[:, : int(self._max_length)]
+            attention_mask = attention_mask[:, : int(self._max_length)]
+
+        return input_ids, attention_mask
+
+    def _build_onnx_inputs(self, session: onnxruntime.InferenceSession, input_ids: np.ndarray, attention_mask: np.ndarray) -> dict[str, np.ndarray]:
+        seq_len = input_ids.shape[1]
+        feed: dict[str, np.ndarray] = {}
+
+        for input_meta in session.get_inputs():
+            name = input_meta.name
+            lowered = name.lower()
+
+            if "input_ids" in lowered or lowered == "ids":
+                value = input_ids
+            elif "attention_mask" in lowered or lowered == "mask":
+                value = attention_mask
+            elif "token_type_ids" in lowered or "segment_ids" in lowered:
+                value = np.zeros((1, seq_len), dtype=np.int64)
+            elif "position_ids" in lowered:
+                value = np.arange(seq_len, dtype=np.int64).reshape(1, seq_len)
+            else:
+                raise ValueError(f"Unsupported ONNX input: {name}")
+
+            # Cast to the model-declared integer type when possible
+            declared_type = (input_meta.type or "").lower()
+            if "int32" in declared_type:
+                value = value.astype(np.int32)
+            elif "int64" in declared_type:
+                value = value.astype(np.int64)
+
+            feed[name] = value
+
+        return feed
+
     def create_embedding(self, input_text: str) -> tuple[str, List[float]]:
         """Create embedding for the given text."""
         try:
@@ -80,10 +142,13 @@ class GemmaEmbeddingModel(EmbeddingModel):
             }
             
             # Using document prefix as default
-            inputs = tokenizer([prefixes["document"] + input_text], padding=True, return_tensors="np")
+            text = prefixes["document"] + input_text
+            input_ids, attention_mask = self._tokenize(tokenizer, text)
+            feed = self._build_onnx_inputs(session, input_ids, attention_mask)
 
-            _, sentence_embedding = session.run(None, inputs.data)
-            
+            outputs = session.run(None, feed)
+            sentence_embedding = outputs[-1] if len(outputs) > 1 else outputs[0]
+
             return (self.model_name, sentence_embedding[0].tolist())
             
         except Exception as e:
