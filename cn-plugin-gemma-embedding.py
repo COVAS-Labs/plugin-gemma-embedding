@@ -82,7 +82,18 @@ class GemmaEmbeddingModel(EmbeddingModel):
                 if not os.path.exists(onnx_path):
                     raise ValueError(f"ONNX model file not found in {self.model_dir}")
 
-                self._session = onnxruntime.InferenceSession(onnx_path)
+                cpu_count = os.cpu_count() or 1
+                thread_count = max(1, cpu_count // 4)
+                session_options = onnxruntime.SessionOptions()
+                session_options.intra_op_num_threads = thread_count
+                session_options.inter_op_num_threads = 1
+                session_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
+
+                log('info', f"Gemma Embedding using {thread_count}/{cpu_count} CPU threads")
+                self._session = onnxruntime.InferenceSession(
+                    onnx_path,
+                    sess_options=session_options,
+                )
                 
             except Exception as e:
                 log('error', f"Failed to initialize Gemma Embedding model: {e}")
