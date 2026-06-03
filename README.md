@@ -6,6 +6,8 @@ Run Embedding locally using Google EmbeddingGemma model via ONNX Runtime.
 
 This plugin provides offline Embedding capabilities for COVAS:NEXT using the **Google EmbeddingGemma** model. This allows for high-quality text embeddings without requiring an internet connection.
 
+The plugin packages the q8 ONNX checkpoint (`model_quantized.onnx`) by default. The upstream model card does not recommend FP16 activations for EmbeddingGemma, and the q8 checkpoint is reliable on CPU.
+
 ## Features
 
 - **Offline Embedding**: No internet connection required.
@@ -25,7 +27,7 @@ Unpack the plugin into the `plugins` folder in the COVAS:NEXT AppData folder, le
     - `deps`
     - `__init__.py`
     - `model`
-      - `model_fp16.onnx`
+      - `model_quantized.onnx`
       - `tokenizer.json`
       - ...
     - etc.

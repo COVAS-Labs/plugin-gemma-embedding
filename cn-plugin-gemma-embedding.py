@@ -65,7 +65,12 @@ class GemmaEmbeddingModel(EmbeddingModel):
 
                 # ONNX session
                 # Look for the ONNX file
-                onnx_path = os.path.join(self.model_dir, "onnx", "model_fp16.onnx")
+                onnx_path = os.path.join(self.model_dir, "onnx", "model_quantized.onnx")
+                if not os.path.exists(onnx_path):
+                     onnx_path = os.path.join(self.model_dir, "model_quantized.onnx")
+
+                if not os.path.exists(onnx_path):
+                     onnx_path = os.path.join(self.model_dir, "onnx", "model_fp16.onnx")
                 if not os.path.exists(onnx_path):
                      onnx_path = os.path.join(self.model_dir, "model_fp16.onnx")
                 
