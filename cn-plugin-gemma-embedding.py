@@ -16,16 +16,38 @@ from lib.PluginSettingDefinitions import (
     ModelProviderDefinition,
     SettingsGrid,
     ParagraphSetting,
+    SelectOption,
+    SelectSetting,
 )
 from lib.PluginBase import PluginBase, PluginManifest
 from lib.Logger import log
 
+
+def _discover_model_files(model_dir: str) -> list[str]:
+    preferred = [
+        os.path.join("onnx", "model_quantized.onnx"),
+        "model_quantized.onnx",
+        os.path.join("onnx", "model_fp16.onnx"),
+        "model_fp16.onnx",
+    ]
+    model_files: list[str] = []
+    for root, _, files in os.walk(model_dir):
+        for filename in files:
+            if not filename.lower().endswith(".onnx") or "model" not in filename.lower():
+                continue
+            relative_path = os.path.relpath(os.path.join(root, filename), model_dir)
+            model_files.append(relative_path)
+
+    return sorted(set(model_files), key=lambda path: (preferred.index(path) if path in preferred else len(preferred), path))
+
+
 class GemmaEmbeddingModel(EmbeddingModel):
     """Gemma Embedding model implementation."""
     
-    def __init__(self, model_dir: str):
+    def __init__(self, model_dir: str, model_file: str | None = None):
         super().__init__("gemma-embedding")
         self.model_dir = model_dir
+        self.model_file = model_file
         self._session = None
         self._tokenizer = None
         self._max_length = None
@@ -63,28 +85,12 @@ class GemmaEmbeddingModel(EmbeddingModel):
                         or config.get("max_length")
                     )
 
-                # ONNX session
-                # Look for the ONNX file
-                onnx_path = os.path.join(self.model_dir, "onnx", "model_quantized.onnx")
-                if not os.path.exists(onnx_path):
-                     onnx_path = os.path.join(self.model_dir, "model_quantized.onnx")
-
-                if not os.path.exists(onnx_path):
-                     onnx_path = os.path.join(self.model_dir, "onnx", "model_fp16.onnx")
-                if not os.path.exists(onnx_path):
-                     onnx_path = os.path.join(self.model_dir, "model_fp16.onnx")
-                
-                if not os.path.exists(onnx_path):
-                     # Try finding any onnx file
-                     for root, dirs, files in os.walk(self.model_dir):
-                        for file in files:
-                            if file.endswith(".onnx") and "model" in file:
-                                onnx_path = os.path.join(root, file)
-                                break
-                        if os.path.exists(onnx_path):
-                            break
-
-                if not os.path.exists(onnx_path):
+                model_files = _discover_model_files(self.model_dir)
+                if self.model_file in model_files:
+                    onnx_path = os.path.join(self.model_dir, self.model_file)
+                elif model_files:
+                    onnx_path = os.path.join(self.model_dir, model_files[0])
+                else:
                     raise ValueError(f"ONNX model file not found in {self.model_dir}")
 
                 cpu_count = os.cpu_count() or 1
@@ -178,6 +184,31 @@ class GemmaEmbeddingPlugin(PluginBase):
     
     def __init__(self, plugin_manifest: PluginManifest):
         super().__init__(plugin_manifest)
+        model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model")
+        model_files = _discover_model_files(model_dir)
+        provider_settings = []
+        if len(model_files) > 1:
+            provider_settings.append(
+                SettingsGrid(
+                    key="model",
+                    label="Model",
+                    fields=[
+                        SelectSetting(
+                            key="model_file",
+                            label="Model format",
+                            type="select",
+                            readonly=False,
+                            placeholder=None,
+                            default_value=model_files[0],
+                            select_options=[
+                                SelectOption(key=model_file, label=model_file, value=model_file, disabled=False)
+                                for model_file in model_files
+                            ],
+                            multi_select=False,
+                        )
+                    ],
+                )
+            )
         
         self.settings_config = PluginSettings(
             key="Gemma Embedding",
@@ -205,8 +236,8 @@ class GemmaEmbeddingPlugin(PluginBase):
             ModelProviderDefinition(
                 kind='embedding',
                 id='gemma-embedding',
-                label='Gemma Embedding (Offline)',
-                settings_config=[]
+                label='EmbeddingGemma (Local)',
+                settings_config=provider_settings
             )
         ]
     
@@ -217,8 +248,9 @@ class GemmaEmbeddingPlugin(PluginBase):
         if provider_id == 'gemma-embedding':
             plugin_dir = os.path.dirname(os.path.abspath(__file__))
             model_dir = os.path.join(plugin_dir, "model")
-            
-            return GemmaEmbeddingModel(model_dir=model_dir)
+            model_files = _discover_model_files(model_dir)
+            model_file = str(settings.get("model_file", model_files[0] if model_files else ""))
+            return GemmaEmbeddingModel(model_dir=model_dir, model_file=model_file)
         
         raise ValueError(f'Unknown Gemma provider: {provider_id}')
 
@@ -226,7 +258,7 @@ if __name__ == "__main__":
     # For testing purposes
     plugin_manifest = PluginManifest(
         name="Gemma Embedding Plugin",
-        version="1.0.0",
+        version="0.0.8",
         author="COVAS:NEXT",
         description="Gemma Embedding Plugin for COVAS:NEXT"
     )

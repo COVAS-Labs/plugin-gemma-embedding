@@ -8,6 +8,12 @@ This plugin provides offline Embedding capabilities for COVAS:NEXT using the **G
 
 The plugin packages the q8 ONNX checkpoint (`model_quantized.onnx`) by default. The upstream model card does not recommend FP16 activations for EmbeddingGemma, and the q8 checkpoint is reliable on CPU.
 
+## Model Formats
+
+The plugin automatically detects compatible `*model*.onnx` files in `model/` and its subdirectories. When more than one file is installed, a **Model format** selector appears in the provider settings. The packaged Q8 checkpoint remains the default.
+
+To add another format, download a compatible EmbeddingGemma ONNX model and place the ONNX file in `model/onnx/`. Keep the packaged `tokenizer.json` and `config.json` in `model/`. Restart COVAS:NEXT after adding the file, then select it from the provider settings.
+
 ## Features
 
 - **Offline Embedding**: No internet connection required.
