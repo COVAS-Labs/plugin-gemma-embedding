@@ -16,11 +16,14 @@ from lib.PluginSettingDefinitions import (
     ModelProviderDefinition,
     SettingsGrid,
     ParagraphSetting,
+    NumericalSetting,
     SelectOption,
     SelectSetting,
 )
 from lib.PluginBase import PluginBase, PluginManifest
 from lib.Logger import log
+
+DEFAULT_ONNX_THREADS = max(1, (os.cpu_count() or 1) // 2)
 
 
 def _discover_model_files(model_dir: str) -> list[str]:
@@ -44,10 +47,11 @@ def _discover_model_files(model_dir: str) -> list[str]:
 class GemmaEmbeddingModel(EmbeddingModel):
     """Gemma Embedding model implementation."""
     
-    def __init__(self, model_dir: str, model_file: str | None = None):
+    def __init__(self, model_dir: str, model_file: str | None = None, onnx_threads: int = DEFAULT_ONNX_THREADS):
         super().__init__("gemma-embedding")
         self.model_dir = model_dir
         self.model_file = model_file
+        self.onnx_threads = max(1, int(onnx_threads))
         self._session = None
         self._tokenizer = None
         self._max_length = None
@@ -93,14 +97,12 @@ class GemmaEmbeddingModel(EmbeddingModel):
                 else:
                     raise ValueError(f"ONNX model file not found in {self.model_dir}")
 
-                cpu_count = os.cpu_count() or 1
-                thread_count = max(1, cpu_count // 4)
                 session_options = onnxruntime.SessionOptions()
-                session_options.intra_op_num_threads = thread_count
+                session_options.intra_op_num_threads = self.onnx_threads
                 session_options.inter_op_num_threads = 1
                 session_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
 
-                log('info', f"Gemma Embedding using {thread_count}/{cpu_count} CPU threads")
+                log('info', f"Gemma Embedding using {self.onnx_threads} CPU threads")
                 self._session = onnxruntime.InferenceSession(
                     onnx_path,
                     sess_options=session_options,
@@ -209,6 +211,25 @@ class GemmaEmbeddingPlugin(PluginBase):
                     ],
                 )
             )
+        provider_settings.append(
+            SettingsGrid(
+                key="performance",
+                label="Performance",
+                fields=[
+                    NumericalSetting(
+                        key="onnx_threads",
+                        label="CPU Threads",
+                        type="number",
+                        readonly=False,
+                        placeholder=str(DEFAULT_ONNX_THREADS),
+                        default_value=DEFAULT_ONNX_THREADS,
+                        min_value=1,
+                        max_value=max(1, os.cpu_count() or 1),
+                        step=1,
+                    )
+                ],
+            )
+        )
         
         self.settings_config = PluginSettings(
             key="Gemma Embedding",
@@ -250,7 +271,8 @@ class GemmaEmbeddingPlugin(PluginBase):
             model_dir = os.path.join(plugin_dir, "model")
             model_files = _discover_model_files(model_dir)
             model_file = str(settings.get("model_file", model_files[0] if model_files else ""))
-            return GemmaEmbeddingModel(model_dir=model_dir, model_file=model_file)
+            onnx_threads = int(settings.get("onnx_threads", DEFAULT_ONNX_THREADS))
+            return GemmaEmbeddingModel(model_dir=model_dir, model_file=model_file, onnx_threads=onnx_threads)
         
         raise ValueError(f'Unknown Gemma provider: {provider_id}')
 
@@ -258,7 +280,7 @@ if __name__ == "__main__":
     # For testing purposes
     plugin_manifest = PluginManifest(
         name="Gemma Embedding Plugin",
-        version="0.0.8",
+        version="0.0.9",
         author="COVAS:NEXT",
         description="Gemma Embedding Plugin for COVAS:NEXT"
     )
