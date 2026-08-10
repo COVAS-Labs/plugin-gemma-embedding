@@ -23,7 +23,29 @@ from lib.PluginSettingDefinitions import (
 from lib.PluginBase import PluginBase, PluginManifest
 from lib.Logger import log
 
-DEFAULT_ONNX_THREADS = max(1, (os.cpu_count() or 1) // 2)
+DEFAULT_ONNX_THREADS = min(4, max(1, (os.cpu_count() or 1) // 2))
+SETTINGS_SCHEMA_VERSION = 1
+
+
+def _migrate_settings(settings: dict[str, Any], from_version: int) -> None:
+    if from_version == 0:
+        try:
+            if int(settings.get("onnx_threads", DEFAULT_ONNX_THREADS)) > 4:
+                settings["onnx_threads"] = 4
+        except (TypeError, ValueError):
+            pass
+
+
+def _apply_pending_migrations(settings: dict[str, Any]) -> None:
+    try:
+        version = int(settings.get("settings_version", 0))
+    except (TypeError, ValueError):
+        version = 0
+
+    while version < SETTINGS_SCHEMA_VERSION:
+        _migrate_settings(settings, version)
+        version += 1
+        settings["settings_version"] = version
 
 
 def _discover_model_files(model_dir: str) -> list[str]:
@@ -183,6 +205,8 @@ class GemmaEmbeddingPlugin(PluginBase):
     """
     Plugin providing Gemma Embedding services.
     """
+
+    settings_schema_version = SETTINGS_SCHEMA_VERSION
     
     def __init__(self, plugin_manifest: PluginManifest):
         super().__init__(plugin_manifest)
@@ -226,7 +250,7 @@ class GemmaEmbeddingPlugin(PluginBase):
                         min_value=1,
                         max_value=max(1, os.cpu_count() or 1),
                         step=1,
-                    )
+                    ),
                 ],
             )
         )
@@ -261,12 +285,17 @@ class GemmaEmbeddingPlugin(PluginBase):
                 settings_config=provider_settings
             )
         ]
+
+    @override
+    def migrate_settings(self, settings: dict[str, Any], from_version: int) -> None:
+        _migrate_settings(settings, from_version)
     
     @override
     def create_model(self, provider_id: str, settings: dict[str, Any]) -> EmbeddingModel:
         """Create a model instance for the given provider."""
         
         if provider_id == 'gemma-embedding':
+            _apply_pending_migrations(settings)
             plugin_dir = os.path.dirname(os.path.abspath(__file__))
             model_dir = os.path.join(plugin_dir, "model")
             model_files = _discover_model_files(model_dir)
@@ -280,7 +309,7 @@ if __name__ == "__main__":
     # For testing purposes
     plugin_manifest = PluginManifest(
         name="Gemma Embedding Plugin",
-        version="0.0.9",
+        version="0.0.10",
         author="COVAS:NEXT",
         description="Gemma Embedding Plugin for COVAS:NEXT"
     )
