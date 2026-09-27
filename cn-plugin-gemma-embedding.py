@@ -6,6 +6,7 @@ Provides offline embedding capabilities using the Google EmbeddingGemma model.
 from typing import override, Any, List
 import os
 import json
+import threading
 import numpy as np
 import onnxruntime
 from tokenizers import Tokenizer
@@ -77,6 +78,14 @@ class GemmaEmbeddingModel(EmbeddingModel):
         self._session = None
         self._tokenizer = None
         self._max_length = None
+        threading.Thread(target=self._warmup, name="gemma-embedding-warmup", daemon=True).start()
+
+    def _warmup(self) -> None:
+        try:
+            self.create_embedding("warmup")
+            log("info", "Gemma embedding warmup complete")
+        except Exception as exc:
+            log("warning", f"Gemma embedding warmup failed: {exc}")
     
     def _get_model(self):
         """Lazily initialize the model."""
@@ -309,7 +318,7 @@ if __name__ == "__main__":
     # For testing purposes
     plugin_manifest = PluginManifest(
         name="Gemma Embedding Plugin",
-        version="0.0.10",
+        version="0.0.11",
         author="COVAS:NEXT",
         description="Gemma Embedding Plugin for COVAS:NEXT"
     )
